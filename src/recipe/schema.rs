@@ -120,6 +120,7 @@ pub struct RecipeInstall {
     pub debian: Option<Commands>,
     pub arch: Option<Commands>,
     pub linux: Option<Commands>,
+    pub all: Option<Commands>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -128,6 +129,7 @@ pub struct RecipeUpgrade {
     pub debian: Option<Commands>,
     pub arch: Option<Commands>,
     pub linux: Option<Commands>,
+    pub all: Option<Commands>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -136,6 +138,7 @@ pub struct RecipeUninstall {
     pub debian: Option<Commands>,
     pub arch: Option<Commands>,
     pub linux: Option<Commands>,
+    pub all: Option<Commands>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -152,6 +155,7 @@ pub struct RecipeSetup {
     pub debian: Option<Commands>,
     pub arch: Option<Commands>,
     pub linux: Option<Commands>,
+    pub all: Option<Commands>,
     pub undo: Option<SetupUndo>,
 }
 
@@ -177,6 +181,7 @@ pub struct SetupUndo {
     pub debian: Option<Commands>,
     pub arch: Option<Commands>,
     pub linux: Option<Commands>,
+    pub all: Option<Commands>,
 }
 
 /// Parsed from install.toml
@@ -202,6 +207,7 @@ pub struct SetupFile {
     pub debian: Option<Commands>,
     pub arch: Option<Commands>,
     pub linux: Option<Commands>,
+    pub all: Option<Commands>,
     pub undo: Option<SetupUndo>,
 }
 
@@ -211,13 +217,15 @@ fn platform_cmds<'a>(
     debian: Option<&'a Commands>,
     arch: Option<&'a Commands>,
     linux: Option<&'a Commands>,
+    all: Option<&'a Commands>,
 ) -> Vec<&'a str> {
+    // Hierarchy: specific platform > linux (debian+arch) > all (everywhere).
+    // arch does NOT fall back to debian — they're siblings under linux.
     let cmds = match platform {
-        crate::platform::Platform::MacOS => macos,
-        // Arch uses its own section, falling back to debian, then linux
-        crate::platform::Platform::Arch => arch.or(debian).or(linux),
-        crate::platform::Platform::Debian => debian.or(linux),
-        crate::platform::Platform::Unknown => debian.or(linux),
+        crate::platform::Platform::MacOS => macos.or(all),
+        crate::platform::Platform::Arch => arch.or(linux).or(all),
+        crate::platform::Platform::Debian => debian.or(linux).or(all),
+        crate::platform::Platform::Unknown => debian.or(linux).or(all),
     };
     cmds.map(|c| c.as_steps()).unwrap_or_default()
 }
@@ -225,28 +233,28 @@ fn platform_cmds<'a>(
 impl Recipe {
     pub fn install_steps_for(&self, platform: &crate::platform::Platform) -> Vec<&str> {
         let Some(s) = &self.install else { return vec![] };
-        platform_cmds(platform, s.macos.as_ref(), s.debian.as_ref(), s.arch.as_ref(), s.linux.as_ref())
+        platform_cmds(platform, s.macos.as_ref(), s.debian.as_ref(), s.arch.as_ref(), s.linux.as_ref(), s.all.as_ref())
     }
 
     pub fn uninstall_steps_for(&self, platform: &crate::platform::Platform) -> Vec<&str> {
         let Some(s) = &self.uninstall else { return vec![] };
-        platform_cmds(platform, s.macos.as_ref(), s.debian.as_ref(), s.arch.as_ref(), s.linux.as_ref())
+        platform_cmds(platform, s.macos.as_ref(), s.debian.as_ref(), s.arch.as_ref(), s.linux.as_ref(), s.all.as_ref())
     }
 
     pub fn upgrade_steps_for(&self, platform: &crate::platform::Platform) -> Vec<&str> {
         let Some(s) = &self.upgrade else { return vec![] };
-        platform_cmds(platform, s.macos.as_ref(), s.debian.as_ref(), s.arch.as_ref(), s.linux.as_ref())
+        platform_cmds(platform, s.macos.as_ref(), s.debian.as_ref(), s.arch.as_ref(), s.linux.as_ref(), s.all.as_ref())
     }
 }
 
 impl RecipeSetup {
     pub fn setup_cmds_for(&self, platform: &crate::platform::Platform) -> Vec<&str> {
-        platform_cmds(platform, self.macos.as_ref(), self.debian.as_ref(), self.arch.as_ref(), self.linux.as_ref())
+        platform_cmds(platform, self.macos.as_ref(), self.debian.as_ref(), self.arch.as_ref(), self.linux.as_ref(), self.all.as_ref())
     }
 
     pub fn undo_cmds_for(&self, platform: &crate::platform::Platform) -> Vec<&str> {
         let Some(undo) = &self.undo else { return vec![] };
-        platform_cmds(platform, undo.macos.as_ref(), undo.debian.as_ref(), undo.arch.as_ref(), undo.linux.as_ref())
+        platform_cmds(platform, undo.macos.as_ref(), undo.debian.as_ref(), undo.arch.as_ref(), undo.linux.as_ref(), undo.all.as_ref())
     }
 }
 
@@ -268,7 +276,7 @@ mod tests {
                 platforms: None,
             },
             check: None,
-            install: Some(RecipeInstall { macos: install_macos, debian: install_debian, arch: None, linux: None }),
+            install: Some(RecipeInstall { macos: install_macos, debian: install_debian, arch: None, linux: None, all: None }),
             upgrade: None,
             uninstall: None,
             setup: None,
@@ -383,6 +391,7 @@ mod tests {
             debian: None,
             arch: None,
             linux: None,
+            all: None,
         });
         // act
         let steps = recipe.uninstall_steps_for(&Platform::MacOS);
@@ -457,6 +466,7 @@ arch = "echo arch-setup"
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         // act
@@ -477,6 +487,7 @@ undo: None,
             debian: Some(Commands::One("ln -s foo bar".into())),
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         // act
@@ -497,6 +508,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         // act
@@ -517,11 +529,13 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: Some(SetupUndo {
                 macos: Some(Commands::One("defaults delete com.foo bar".into())),
                 debian: None,
                 arch: None,
                 linux: None,
+            all: None,
             }),
         };
         // act
@@ -542,6 +556,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: None,
         };
         // act
@@ -629,6 +644,7 @@ macos = "brew install --cask iterm2"
             debian: None,
             arch: None,
             linux: Some(Commands::One("npm install -g nvim".into())),
+            all: None,
         });
         // act
         let steps = recipe.install_steps_for(&Platform::Arch);
@@ -645,6 +661,7 @@ macos = "brew install --cask iterm2"
             debian: None,
             arch: None,
             linux: Some(Commands::One("npm install -g nvim".into())),
+            all: None,
         });
         // act
         let steps = recipe.install_steps_for(&Platform::Debian);
@@ -661,6 +678,7 @@ macos = "brew install --cask iterm2"
             debian: None,
             arch: Some(Commands::One("pacman -S nvim".into())),
             linux: Some(Commands::One("npm install -g nvim".into())),
+            all: None,
         });
         // act — specific section takes precedence over linux alias
         let steps = recipe.install_steps_for(&Platform::Arch);
@@ -680,6 +698,7 @@ macos = "brew install --cask iterm2"
             debian: None,
             arch: None,
             linux: Some(Commands::One("echo linux-setup".into())),
+            all: None,
             undo: None,
         };
         // act
@@ -706,6 +725,77 @@ macos = "npm install -g @anthropic-ai/claude-code"
         let recipe: InstallFile = toml::from_str(toml).unwrap();
         // assert
         let steps = recipe.install.as_ref().unwrap().linux.as_ref().unwrap().as_steps();
+        assert_eq!(steps, vec!["npm install -g @anthropic-ai/claude-code"]);
+    }
+
+    // --- all alias (same command on every platform) ---
+
+    fn recipe_with_all(all: Option<Commands>) -> Recipe {
+        let mut recipe = make_recipe(None, None);
+        recipe.install = Some(RecipeInstall {
+            macos: None,
+            debian: None,
+            arch: None,
+            linux: None,
+            all,
+        });
+        recipe
+    }
+
+    #[test]
+    fn install_steps_all_applies_to_every_platform() {
+        // arrange
+        let recipe = recipe_with_all(Some(Commands::One("npm install -g foo".into())));
+        // act + assert
+        assert_eq!(recipe.install_steps_for(&Platform::MacOS), vec!["npm install -g foo"]);
+        assert_eq!(recipe.install_steps_for(&Platform::Debian), vec!["npm install -g foo"]);
+        assert_eq!(recipe.install_steps_for(&Platform::Arch), vec!["npm install -g foo"]);
+    }
+
+    #[test]
+    fn install_steps_specific_wins_over_all() {
+        // arrange
+        let mut recipe = make_recipe(None, None);
+        recipe.install = Some(RecipeInstall {
+            macos: Some(Commands::One("brew install foo".into())),
+            debian: None,
+            arch: None,
+            linux: None,
+            all: Some(Commands::One("npm install -g foo".into())),
+        });
+        // act — macos specific beats all
+        let steps = recipe.install_steps_for(&Platform::MacOS);
+        // assert
+        assert_eq!(steps, vec!["brew install foo"]);
+    }
+
+    #[test]
+    fn install_steps_arch_does_not_fall_back_to_debian() {
+        // arrange — only debian defined, no arch/linux/all
+        let recipe = make_recipe(None, Some(Commands::One("apt install nvim".into())));
+        // act
+        let steps = recipe.install_steps_for(&Platform::Arch);
+        // assert — arch and debian are siblings; arch gets nothing
+        assert!(steps.is_empty());
+    }
+
+    #[test]
+    fn install_file_parses_all_commands() {
+        // arrange
+        let toml = r#"
+[meta]
+name = "claude"
+version = "1.0.0"
+description = "Claude Code"
+type = "qwert"
+
+[install]
+all = "npm install -g @anthropic-ai/claude-code"
+"#;
+        // act
+        let recipe: InstallFile = toml::from_str(toml).unwrap();
+        // assert
+        let steps = recipe.install.as_ref().unwrap().all.as_ref().unwrap().as_steps();
         assert_eq!(steps, vec!["npm install -g @anthropic-ai/claude-code"]);
     }
 }

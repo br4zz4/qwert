@@ -162,6 +162,7 @@ version_flag = "-V"
 macos = "custom install command"
 debian = ["step one", "step two"]
 linux = "same command for debian and arch"
+all = "same command on every platform"
 ```
 
 **Platform restriction (`platforms`)**: optional allowlist in `[meta]`. When absent, the
@@ -169,9 +170,22 @@ recipe works on every platform. Values: `macos`, `debian`, `arch`, or `linux` (a
 debian+arch). When the current platform isn't in the list, `qwert apply` skips the tool
 with a warning (counted as "skipped" in the summary, never a failure).
 
-**`linux` command sections**: `[install.linux]`, `[setup.linux]`, `[upgrade.linux]`,
-`[uninstall.linux]`, `[undo.linux]` run on both debian and arch. A platform-specific
-section (`arch`/`debian`) takes precedence over `linux` when both exist.
+**Platform hierarchy for command sections**: platform-specific commands form a tree —
+`all` (everywhere) → `linux` (debian+arch) → `debian`/`arch` (specific). Resolution
+picks the most specific section that exists:
+
+```
+all
+├── linux
+│   ├── debian
+│   └── arch
+└── macos
+```
+
+- `[install.all]` / `[setup.all]` / … run on every platform (same command everywhere).
+- `[install.linux]` / `[setup.linux]` / … run on both debian and arch.
+- A platform-specific section (`macos`/`debian`/`arch`) takes precedence over `linux`/`all`.
+- `arch` does **not** fall back to `debian` — they are siblings under `linux`.
 
 ### `setup.toml`
 

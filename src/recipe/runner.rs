@@ -372,11 +372,13 @@ pub fn setup_inline(name: &str, inline: &qwert_yml::InlineSetup, source: Option<
         debian: inline.debian.as_ref().map(to_commands),
         arch: inline.arch.as_ref().map(to_commands),
         linux: inline.linux.as_ref().map(to_commands),
+        all: None,
         undo: inline.undo.as_ref().map(|u| SetupUndo {
             macos: u.macos.as_ref().map(to_commands),
             debian: u.debian.as_ref().map(to_commands),
             arch: u.arch.as_ref().map(to_commands),
             linux: u.linux.as_ref().map(to_commands),
+            all: None,
         }),
     };
 
@@ -617,6 +619,7 @@ mod tests {
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         }
     }
@@ -666,6 +669,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -696,6 +700,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -728,6 +733,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -789,6 +795,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -820,6 +827,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -848,6 +856,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let mut recipe = make_recipe_with_setup(Some(s));
@@ -872,6 +881,7 @@ undo: None,
             debian: Some(Commands::One("echo debian-setup".into())),
             arch: None,
             linux: None,
+            all: None,
 undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -930,6 +940,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -955,6 +966,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
         });
         // act — run on the current platform; if it's macOS the test is skipped
         let platform = platform::detect();
@@ -977,6 +989,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: Some(Commands::One("true".into())),
+            all: None,
         });
         // act — the recipe supports the current platform; commands won't run (check first)
         let result = install(&recipe, std::path::Path::new("/tmp"));
@@ -1001,6 +1014,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: None,
         };
         let mut recipe = make_recipe_with_setup(Some(s));
@@ -1032,6 +1046,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
@@ -1064,6 +1079,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: None,
         };
         let mut recipe = make_recipe_with_setup(Some(s));
@@ -1102,6 +1118,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
+            all: None,
             undo: None,
         };
         let mut recipe = make_recipe_with_setup(Some(s));

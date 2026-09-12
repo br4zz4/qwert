@@ -42,6 +42,7 @@ fn assemble_recipe(name: &str, install: Option<InstallFile>, setup: Option<Setup
         debian: s.debian,
         arch: s.arch,
         linux: s.linux,
+        all: s.all,
         undo: s.undo,
     });
 
