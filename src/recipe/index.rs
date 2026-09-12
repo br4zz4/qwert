@@ -26,6 +26,7 @@ fn assemble_recipe(name: &str, install: Option<InstallFile>, setup: Option<Setup
         depends: vec![],
         packages: None,
         pkg: None,
+        platforms: None,
     });
 
     let check = install.as_ref().and_then(|i| i.check.clone()).or_else(|| {
@@ -40,6 +41,7 @@ fn assemble_recipe(name: &str, install: Option<InstallFile>, setup: Option<Setup
         macos: s.macos,
         debian: s.debian,
         arch: s.arch,
+        linux: s.linux,
         undo: s.undo,
     });
 

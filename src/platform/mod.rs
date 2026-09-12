@@ -72,6 +72,18 @@ impl std::fmt::Display for Platform {
     }
 }
 
+impl Platform {
+    /// Lowercase identifier matching recipe TOML section names / `platforms` values.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Platform::MacOS => "macos",
+            Platform::Debian => "debian",
+            Platform::Arch => "arch",
+            Platform::Unknown => "unknown",
+        }
+    }
+}
+
 /// Map a yuiop platform name (brew|apt|pacman) to a qwert Platform.
 pub fn platform_for_pm(pm: Option<&str>) -> Platform {
     match pm {

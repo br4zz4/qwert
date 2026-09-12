@@ -46,6 +46,7 @@ pub struct InlineSetup {
     pub macos: Option<StringOrList>,
     pub debian: Option<StringOrList>,
     pub arch: Option<StringOrList>,
+    pub linux: Option<StringOrList>,
     pub undo: Option<InlineUndo>,
 }
 
@@ -54,6 +55,7 @@ pub struct InlineUndo {
     pub macos: Option<StringOrList>,
     pub debian: Option<StringOrList>,
     pub arch: Option<StringOrList>,
+    pub linux: Option<StringOrList>,
 }
 
 /// A single command string or an ordered list of commands (mirrors Commands in schema.rs).

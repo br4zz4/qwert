@@ -334,10 +334,12 @@ pub fn setup_inline(name: &str, inline: &qwert_yml::InlineSetup, source: Option<
         macos: inline.macos.as_ref().map(to_commands),
         debian: inline.debian.as_ref().map(to_commands),
         arch: inline.arch.as_ref().map(to_commands),
+        linux: inline.linux.as_ref().map(to_commands),
         undo: inline.undo.as_ref().map(|u| SetupUndo {
             macos: u.macos.as_ref().map(to_commands),
             debian: u.debian.as_ref().map(to_commands),
             arch: u.arch.as_ref().map(to_commands),
+            linux: u.linux.as_ref().map(to_commands),
         }),
     };
 
@@ -539,6 +541,7 @@ mod tests {
                 depends: vec![],
                 packages: None,
                 pkg: None,
+                platforms: None,
             },
             check: Some(RecipeCheck { command: Some("test-nonexistent-binary".into()), version_flag: None, cmd: None }),
             install: None,
@@ -559,7 +562,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         }
     }
 
@@ -607,7 +611,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act — source is the config.yml configs path for the tool
@@ -636,7 +641,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act — source is a file but dest needs a directory
@@ -667,7 +673,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act — source is already-linked src
@@ -727,7 +734,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act
@@ -757,7 +765,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act
@@ -784,7 +793,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let mut recipe = make_recipe_with_setup(Some(s));
         recipe.meta.name = "mytest".into();
@@ -807,7 +817,8 @@ mod tests {
             macos: Some(Commands::One("defaults write com.foo bar".into())),
             debian: Some(Commands::One("echo debian-setup".into())),
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act
@@ -864,7 +875,8 @@ mod tests {
             macos: None,
             debian: None,
             arch: None,
-            undo: None,
+            linux: None,
+undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act
