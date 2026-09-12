@@ -48,6 +48,13 @@ pub fn run(name: &str) -> Result<()> {
             }
             printer::field("kind", &printer::kind_tag(&meta.kind.to_string()));
 
+            // Platforms: "all" when unrestricted, or the declared list.
+            let platforms = match &meta.platforms {
+                Some(list) if !list.is_empty() => list.join(", "),
+                _ => "all".to_string(),
+            };
+            printer::field("platforms", &platforms);
+
             if let Some(check) = &recipe.check {
                 let cmd = if let Some(cmd_str) = &check.cmd {
                     cmd_str.clone()

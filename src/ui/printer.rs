@@ -80,6 +80,14 @@ pub fn failed_w(name: &str, width: usize, msg: &str) {
     println!("  {}  {}  {}", cross, name_col, msg_col);
 }
 
+/// ⚠️  tool_name   reason — skipping (platform not supported, no steps, etc.)
+pub fn skipped(name: &str, reason: &str) {
+    let warn = colorize(WARNING, "⚠");
+    let name_col = colorize(BOLD_WHITE, &format!("{:<12}", name));
+    let msg_col = colorize(WARNING, &format!("{} — skipping", reason));
+    println!("  {}  {}  {}", warn, name_col, msg_col);
+}
+
 // --- Headings ---
 
 pub fn h1(title: &str) {
@@ -125,16 +133,17 @@ pub fn command(cmd: &str, description: &str) {
 
 // --- Summary line ---
 
-/// "  install: 10/11 done • 1 failed" — phase-scoped counter line (no extra blank).
-pub fn summary_phase(label: &str, done: usize, total: usize, failed: usize) {
-    let done_str = colorize(SUCCESS, &format!("{}/{} done", done, total));
+/// "  install: 8 done • 2 failed • 1 skipped" — phase-scoped counter line.
+pub fn summary_phase_skip(label: &str, done: usize, failed: usize, skipped: usize) {
     let head = colorize(BOLD_WHITE, &format!("{}:", label));
+    let mut parts = vec![colorize(SUCCESS, &format!("{} done", done))];
     if failed > 0 {
-        let fail_str = colorize(ERROR, &format!("{} failed", failed));
-        println!("  {}  {}  {}  {}", head, done_str, colorize(ORANGE, BULLET), fail_str);
-    } else {
-        println!("  {}  {}", head, done_str);
+        parts.push(colorize(ERROR, &format!("{} failed", failed)));
     }
+    if skipped > 0 {
+        parts.push(colorize(WARNING, &format!("{} skipped", skipped)));
+    }
+    println!("  {}  {}", head, parts.join(colorize(ORANGE, " • ").as_str()));
 }
 
 // --- Kind tag ---

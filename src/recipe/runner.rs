@@ -13,6 +13,18 @@ pub enum RunResult {
     NotSupported,
 }
 
+/// Terminal-level outcome after a `*_with_output` operation — lets callers
+/// distinguish success from "skipped on this platform" from hard failure.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Outcome {
+    /// Installed/set up (or already done / nothing to do).
+    Ok,
+    /// Skipped: platform not supported, or setup has no steps for this platform.
+    Skipped,
+    /// Operation failed.
+    Failed,
+}
+
 /// Check if a recipe is already installed
 pub fn is_installed(recipe: &Recipe) -> bool {
     // Package recipes: ask yuiop (the platform's package manager) — more accurate
@@ -57,6 +69,11 @@ pub fn version_msg(prefix: &str, version: Option<String>) -> String {
 /// Install a recipe on the current platform, resolving dependencies first.
 pub fn install(recipe: &Recipe, recipes_dir: &Path) -> RunResult {
     let platform = platform::detect();
+
+    // Platform restriction: recipe declares which platforms it supports.
+    if !recipe.meta.supports(&platform) {
+        return RunResult::NotSupported;
+    }
 
     if is_installed(recipe) {
         let version = installed_version(recipe);
@@ -184,12 +201,12 @@ pub fn upgrade(recipe: &Recipe) -> RunResult {
     RunResult::Installed
 }
 
-/// Install a recipe and print status to terminal
-pub fn install_with_output(recipe: &Recipe, recipes_dir: &Path) -> bool {
+/// Install a recipe and print status to terminal. Returns the outcome.
+pub fn install_with_output(recipe: &Recipe, recipes_dir: &Path) -> Outcome {
     let name = &recipe.meta.name;
 
     if recipe.setup_only {
-        return true;
+        return Outcome::Ok;
     }
 
     if recipe.local {
@@ -199,21 +216,28 @@ pub fn install_with_output(recipe: &Recipe, recipes_dir: &Path) -> bool {
     match install(recipe, recipes_dir) {
         RunResult::AlreadyInstalled { version } => {
             printer::ok(name, &version_msg("already installed", version));
-            true
+            Outcome::Ok
         }
         RunResult::Installed => {
             let tag = printer::kind_tag(&crate::adapters::yuiop::resolve_label(&recipe.meta));
             let msg = format!("{}  {}", version_msg("installed", installed_version(recipe)), tag);
             printer::ok(name, &msg);
-            true
+            Outcome::Ok
         }
         RunResult::Failed(err) => {
             printer::failed(name, &err);
-            false
+            Outcome::Failed
         }
         RunResult::NotSupported => {
-            printer::failed(name, "not supported on this platform");
-            false
+            let platform = platform::detect();
+            let supported = recipe.meta.platforms.as_deref().map(|p| p.join(", ")).unwrap_or_default();
+            let reason = if supported.is_empty() {
+                format!("not supported on {} — add a 'macos'/'debian'/'arch'/'linux' section", platform)
+            } else {
+                format!("not supported on {} (recipe supports: {})", platform, supported)
+            };
+            printer::skipped(name, &reason);
+            Outcome::Skipped
         }
     }
 }
@@ -259,15 +283,11 @@ fn run_setup_section(name: &str, s: &RecipeSetup, from: Option<PathBuf>) -> RunR
 
     // Symlink / copy setups need a source declared in config.yml under
     // `profiles.<profile>.configs.<tool>`. Recipes no longer carry a `from`.
+    // When there's no source AND no platform commands, the setup simply has
+    // nothing to do on this platform — skip (NotSupported), not a hard failure.
     let from = match from {
         Some(from) => from,
-        None => {
-            let kind_hint = s.dest.as_ref().map(|k| format!(" — expected a {}", k)).unwrap_or_default();
-            return RunResult::Failed(format!(
-                "{} setup needs a source{} — declare it in config.yml under 'profiles.<profile>.configs.{}'",
-                name, kind_hint, name
-            ));
-        }
+        None => return RunResult::NotSupported,
     };
 
     // Validate the source's file/dir kind matches what the recipe expects, so the
@@ -287,6 +307,19 @@ fn run_setup_section(name: &str, s: &RecipeSetup, from: Option<PathBuf>) -> RunR
     if s.symlink {
         if dest.is_symlink() && std::fs::read_link(&dest).ok().as_deref() == Some(from.as_path()) {
             return RunResult::AlreadyInstalled { version: None };
+        }
+        // Dest exists but is not the managed symlink (real file, wrong symlink,
+        // or directory) — back it up before linking, instead of failing.
+        if dest.exists() || dest.is_symlink() {
+            let backup_dir = crate::platform::data_dir().join("backups").join(name);
+            match pfs::backup_and_remove(&dest, &backup_dir) {
+                Ok(path) => printer::info(&format!(
+                    "backed up existing {} → {}",
+                    dest.display(),
+                    path.display()
+                )),
+                Err(e) => return RunResult::Failed(format!("backup failed: {}", e)),
+            }
         }
         return match pfs::create_symlink(&from, &dest) {
             Ok(_) => RunResult::Installed,
@@ -310,6 +343,10 @@ pub fn setup(recipe: &Recipe, source: Option<&Path>) -> RunResult {
     let Some(s) = &recipe.setup else {
         return RunResult::NotSupported;
     };
+    // Platform restriction applies to setup too.
+    if !recipe.meta.supports(&platform::detect()) {
+        return RunResult::NotSupported;
+    }
     let from = source.map(|p| PathBuf::from(qwert_yml::expand_tilde(&*p.to_string_lossy())));
     run_setup_section(&recipe.meta.name, s, from)
 }
@@ -351,41 +388,58 @@ pub fn setup_inline(name: &str, inline: &qwert_yml::InlineSetup, source: Option<
     run_setup_section(name, &recipe_setup, from)
 }
 
-/// Run inline setup and print status to terminal. Returns true on success.
-pub fn setup_inline_with_output(name: &str, inline: &qwert_yml::InlineSetup, source: Option<&Path>) -> bool {
+/// Run inline setup and print status to terminal. Returns the outcome.
+pub fn setup_inline_with_output(name: &str, inline: &qwert_yml::InlineSetup, source: Option<&Path>) -> Outcome {
     match setup_inline(name, inline, source) {
-        RunResult::NotSupported => true,
+        RunResult::NotSupported => {
+            printer::skipped(name, "setup has no steps for this platform — skipping");
+            Outcome::Skipped
+        }
         RunResult::AlreadyInstalled { .. } => {
             printer::ok(name, "setup already done");
-            true
+            Outcome::Ok
         }
         RunResult::Installed => {
             printer::ok(name, "setup applied");
-            true
+            Outcome::Ok
         }
         RunResult::Failed(err) => {
             printer::failed(name, &format!("setup failed: {}", err));
-            false
+            Outcome::Failed
         }
     }
 }
 
-/// Run setup and print status to terminal. Returns true on success.
-pub fn setup_with_output(recipe: &Recipe, source: Option<&Path>) -> bool {
+/// Run setup and print status to terminal. Returns the outcome.
+pub fn setup_with_output(recipe: &Recipe, source: Option<&Path>) -> Outcome {
     let name = &recipe.meta.name;
     match setup(recipe, source) {
-        RunResult::NotSupported => true,
+        RunResult::NotSupported => {
+            // No setup section at all → nothing to do, that's fine.
+            if recipe.setup.is_none() {
+                return Outcome::Ok;
+            }
+            let platform = platform::detect();
+            let supported = recipe.meta.platforms.as_deref().map(|p| p.join(", ")).unwrap_or_default();
+            let reason = if supported.is_empty() {
+                format!("setup has no steps for {} — skipping", platform)
+            } else {
+                format!("not supported on {} (recipe supports: {})", platform, supported)
+            };
+            printer::skipped(name, &reason);
+            Outcome::Skipped
+        }
         RunResult::AlreadyInstalled { .. } => {
             printer::ok(name, "setup already done");
-            true
+            Outcome::Ok
         }
         RunResult::Installed => {
             printer::ok(name, "setup applied");
-            true
+            Outcome::Ok
         }
         RunResult::Failed(err) => {
             printer::failed(name, &format!("setup failed: {}", err));
-            false
+            Outcome::Failed
         }
     }
 }
@@ -577,8 +631,8 @@ undo: None,
         let recipe = make_recipe_with_setup(Some(s));
         // act — no source from config.yml
         let result = setup(&recipe, None);
-        // assert — recipe no longer carries a `from`; source must come from config
-        assert!(matches!(result, RunResult::Failed(_)));
+        // assert — no source and no platform commands → skip, not hard failure
+        assert!(matches!(result, RunResult::NotSupported));
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -712,8 +766,8 @@ undo: None,
         let recipe = make_recipe_with_setup(Some(s));
         // act — no source declared
         let result = setup(&recipe, None);
-        // assert — copy needs a source from config.yml
-        assert!(matches!(result, RunResult::Failed(_)));
+        // assert — no source and no commands → skip (NotSupported), not a failure
+        assert!(matches!(result, RunResult::NotSupported));
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -856,7 +910,7 @@ undo: None,
         fs::remove_dir_all(&dir).ok();
     }
 
-    #[test]
+#[test]
     fn setup_status_label_returns_linked_when_correct_symlink_exists() {
         // arrange
         let dir = std::env::temp_dir().join("qwert_runner_test_label_linked");
@@ -876,7 +930,7 @@ undo: None,
             debian: None,
             arch: None,
             linux: None,
-undo: None,
+            undo: None,
         };
         let recipe = make_recipe_with_setup(Some(s));
         // act
@@ -886,5 +940,180 @@ undo: None,
         // assert
         assert_eq!(label, "linked");
         fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- platform restriction ---
+
+    #[test]
+    fn install_returns_not_supported_when_platform_excluded() {
+        // arrange
+        let mut recipe = make_recipe_with_setup(None);
+        recipe.meta.platforms = Some(vec!["macos".into()]);
+        recipe.meta.kind = RecipeKind::Qwert;
+        recipe.install = Some(crate::recipe::schema::RecipeInstall {
+            macos: Some(Commands::One("true".into())),
+            debian: None,
+            arch: None,
+            linux: None,
+        });
+        // act — run on the current platform; if it's macOS the test is skipped
+        let platform = platform::detect();
+        if platform == crate::platform::Platform::MacOS {
+            return; // test is about non-macos platforms
+        }
+        let result = install(&recipe, std::path::Path::new("/tmp"));
+        // assert
+        assert!(matches!(result, RunResult::NotSupported));
+    }
+
+    #[test]
+    fn install_supports_platform_when_listed() {
+        // arrange
+        let mut recipe = make_recipe_with_setup(None);
+        recipe.meta.kind = RecipeKind::Qwert;
+        recipe.meta.platforms = Some(vec![platform::detect().as_str().to_string()]);
+        recipe.install = Some(crate::recipe::schema::RecipeInstall {
+            macos: Some(Commands::One("false".into())),
+            debian: None,
+            arch: None,
+            linux: Some(Commands::One("true".into())),
+        });
+        // act — the recipe supports the current platform; commands won't run (check first)
+        let result = install(&recipe, std::path::Path::new("/tmp"));
+        // assert — not NotSupported; either installed via check or ran commands
+        assert!(!matches!(result, RunResult::NotSupported));
+    }
+
+    #[test]
+    fn setup_returns_not_supported_when_platform_excluded() {
+        // arrange
+        let dir = std::env::temp_dir().join("qwert_runner_test_setup_platform");
+        fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src");
+        fs::write(&src, "data").unwrap();
+        let dest = dir.join("dest");
+        let s = RecipeSetup {
+            from: Some(src.to_str().unwrap().to_string()),
+            to: dest.to_str().unwrap().to_string(),
+            symlink: true,
+            dest: Some(DestKind::File),
+            macos: None,
+            debian: None,
+            arch: None,
+            linux: None,
+            undo: None,
+        };
+        let mut recipe = make_recipe_with_setup(Some(s));
+        recipe.meta.platforms = Some(vec!["macos".into()]);
+        // act — platform excluded
+        let result = setup(&recipe, Some(&src));
+        // assert
+        if platform::detect() == crate::platform::Platform::MacOS {
+            assert!(matches!(result, RunResult::Installed | RunResult::AlreadyInstalled { .. }));
+        } else {
+            assert!(matches!(result, RunResult::NotSupported));
+        }
+    }
+
+    // --- setup without commands and without source → NotSupported (skip) ---
+
+    #[test]
+    fn setup_without_commands_and_source_returns_not_supported() {
+        // arrange — symlink setup, no commands for any platform, no source declared
+        let dir = std::env::temp_dir().join("qwert_runner_test_no_cmds_no_source");
+        fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("dest.conf");
+        let s = RecipeSetup {
+            from: None,
+            to: dest.to_str().unwrap().to_string(),
+            symlink: true,
+            dest: Some(DestKind::File),
+            macos: None,
+            debian: None,
+            arch: None,
+            linux: None,
+            undo: None,
+        };
+        let recipe = make_recipe_with_setup(Some(s));
+        // act
+        let result = setup(&recipe, None);
+        // assert — not a hard failure; skip
+        assert!(matches!(result, RunResult::NotSupported));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- auto-backup on symlink conflict ---
+
+    #[test]
+    fn setup_symlink_backs_up_existing_non_managed_dest() {
+        // arrange — dest exists as a real file (not a qwert symlink)
+        let dir = std::env::temp_dir().join("qwert_runner_test_backup_symlink");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src.conf");
+        let dest = dir.join("dest.conf");
+        fs::write(&src, "managed config").unwrap();
+        fs::write(&dest, "existing user config").unwrap();
+
+        let s = RecipeSetup {
+            from: Some(src.to_str().unwrap().to_string()),
+            to: dest.to_str().unwrap().to_string(),
+            symlink: true,
+            dest: Some(DestKind::File),
+            macos: None,
+            debian: None,
+            arch: None,
+            linux: None,
+            undo: None,
+        };
+        let mut recipe = make_recipe_with_setup(Some(s));
+        recipe.meta.name = "backupme".into();
+        // act
+        let result = setup(&recipe, Some(&src));
+        // assert — symlink created, original backed up
+        assert!(matches!(result, RunResult::Installed));
+        assert!(dest.is_symlink());
+        let backups = crate::platform::data_dir().join("backups").join("backupme");
+        assert!(backups.read_dir().map(|mut d| d.next().is_some()).unwrap_or(false));
+        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&backups).ok();
+    }
+
+    #[test]
+    fn setup_symlink_replaces_wrong_symlink_with_backup() {
+        // arrange — dest is a symlink pointing somewhere else (not managed)
+        let dir = std::env::temp_dir().join("qwert_runner_test_wrong_symlink");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src.conf");
+        let other = dir.join("other.conf");
+        let dest = dir.join("dest.conf");
+        fs::write(&src, "managed").unwrap();
+        fs::write(&other, "other").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&other, &dest).unwrap();
+
+        let s = RecipeSetup {
+            from: Some(src.to_str().unwrap().to_string()),
+            to: dest.to_str().unwrap().to_string(),
+            symlink: true,
+            dest: Some(DestKind::File),
+            macos: None,
+            debian: None,
+            arch: None,
+            linux: None,
+            undo: None,
+        };
+        let mut recipe = make_recipe_with_setup(Some(s));
+        recipe.meta.name = "wronglink".into();
+        // act
+        let result = setup(&recipe, Some(&src));
+        // assert — now links to src; original symlink backed up
+        assert!(matches!(result, RunResult::Installed));
+        assert_eq!(fs::read_link(&dest).unwrap(), src);
+        let backups = crate::platform::data_dir().join("backups").join("wronglink");
+        assert!(backups.read_dir().map(|mut d| d.next().is_some()).unwrap_or(false));
+        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&backups).ok();
     }
 }

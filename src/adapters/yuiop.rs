@@ -61,9 +61,35 @@ fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
             if stderr.is_empty() {
                 Err(format!("yuiop {cmd} failed (exit {})", code.unwrap_or(-1)))
             } else {
-                Err(stderr)
+                Err(translate_error(cmd, args, &stderr))
             }
         }
+    }
+}
+
+/// Rewrite yuiop's terse errors into actionable qwert messages.
+/// Falls back to the original message when the pattern isn't recognized.
+fn translate_error(cmd: &str, args: &[&str], stderr: &str) -> String {
+    // "no knowledge of package 'claude'" — the canonical isn't in yuiop's
+    // provider database for this platform. Tell the user what to do.
+    if let Some(pkg) = stderr.strip_prefix("no knowledge of package '").and_then(|s| s.strip_suffix('\'')) {
+        let platform = platform_name().unwrap_or_else(|| "this platform".to_string());
+        return format!(
+            "package '{}' not available for {} ({}) — install it manually or add a custom recipe in ~/.qwert/recipes/{}/install.toml",
+            pkg, platform_display(&platform), platform, pkg
+        );
+    }
+    let _ = (cmd, args);
+    stderr.to_string()
+}
+
+/// "brew" → "macOS", "pacman" → "Arch Linux", "apt" → "Debian Linux".
+fn platform_display(pm: &str) -> &'static str {
+    match pm {
+        "brew" => "macOS",
+        "pacman" => "Arch Linux",
+        "apt" => "Debian Linux",
+        _ => "Linux",
     }
 }
 
@@ -295,5 +321,36 @@ mod tests {
         for k in &kinds {
             assert!(!is_package_kind(k), "{} should be custom", k);
         }
+    }
+
+    #[test]
+    fn translate_error_rewrites_unknown_package() {
+        // arrange
+        let stderr = "no knowledge of package 'claude'";
+        // act
+        let msg = translate_error("install", &["claude"], stderr);
+        // assert — actionable message mentioning the platform and the fix
+        assert!(msg.contains("package 'claude' not available"));
+        assert!(msg.contains("add a custom recipe"));
+        assert!(!msg.contains("no knowledge"));
+    }
+
+    #[test]
+    fn translate_error_keeps_other_errors() {
+        // arrange
+        let stderr = "error: target not found: codex";
+        // act
+        let msg = translate_error("install", &["codex"], stderr);
+        // assert — passthrough
+        assert_eq!(msg, "error: target not found: codex");
+    }
+
+    #[test]
+    fn platform_display_maps_pm_names() {
+        // arrange + act + assert
+        assert_eq!(platform_display("brew"), "macOS");
+        assert_eq!(platform_display("pacman"), "Arch Linux");
+        assert_eq!(platform_display("apt"), "Debian Linux");
+        assert_eq!(platform_display("aur"), "Linux");
     }
 }

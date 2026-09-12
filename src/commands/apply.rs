@@ -42,8 +42,10 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
 
     let mut install_done = 0;
     let mut install_failed = 0;
+    let mut install_skipped: Vec<String> = Vec::new();
     let mut setup_done = 0;
     let mut setup_failed = 0;
+    let mut setup_skipped: Vec<String> = Vec::new();
     let mut orphan_done = 0;
     let mut orphan_failed = 0;
 
@@ -143,12 +145,14 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
                     continue;
                 }
                 let installed = runner::install_with_output(&recipe, &recipes_dir);
-                if installed {
-                    let version = runner::installed_version(&recipe);
-                    state.mark_installed(name, version.as_deref());
-                    install_done += 1;
-                } else {
-                    install_failed += 1;
+                match installed {
+                    runner::Outcome::Ok => {
+                        let version = runner::installed_version(&recipe);
+                        state.mark_installed(name, version.as_deref());
+                        install_done += 1;
+                    }
+                    runner::Outcome::Failed => install_failed += 1,
+                    runner::Outcome::Skipped => install_skipped.push(name.to_string()),
                 }
             }
             None => {
@@ -192,21 +196,21 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
                 } else if let Some(inline) = config.inline_setup_of(name) {
                     runner::setup_inline_with_output(name, inline, source.as_deref())
                 } else {
-                    true
+                    runner::Outcome::Ok
                 }
             }
             None => {
                 if let Some(inline) = config.inline_setup_of(name) {
                     runner::setup_inline_with_output(name, inline, source.as_deref())
                 } else {
-                    true
+                    runner::Outcome::Ok
                 }
             }
         };
-        if has_setup {
-            setup_done += 1;
-        } else {
-            setup_failed += 1;
+        match has_setup {
+            runner::Outcome::Ok => setup_done += 1,
+            runner::Outcome::Failed => setup_failed += 1,
+            runner::Outcome::Skipped => setup_skipped.push(name.to_string()),
         }
     }
 
@@ -223,11 +227,34 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
     }
     let install_total = install_done + install_failed;
     let setup_total = setup_done + setup_failed;
-    if install_total > 0 {
-        printer::summary_phase("install", install_done, install_total, install_failed);
+    if install_total > 0 || !install_skipped.is_empty() {
+        printer::summary_phase_skip(
+            "install",
+            install_done,
+            install_failed,
+            install_skipped.len(),
+        );
     }
-    if setup_total > 0 {
-        printer::summary_phase("setup", setup_done, setup_total, setup_failed);
+    if setup_total > 0 || !setup_skipped.is_empty() {
+        printer::summary_phase_skip(
+            "setup",
+            setup_done,
+            setup_failed,
+            setup_skipped.len(),
+        );
+    }
+
+    // Nominal list of skipped tools (unsupported platform / no steps).
+    let mut skipped_all: Vec<String> = install_skipped;
+    skipped_all.extend(setup_skipped);
+    skipped_all.sort();
+    skipped_all.dedup();
+    if !skipped_all.is_empty() {
+        printer::blank();
+        printer::h2("Skipped");
+        for name in &skipped_all {
+            printer::bullet(&format!("{} — not supported on this platform", name));
+        }
     }
 
     Ok(())
