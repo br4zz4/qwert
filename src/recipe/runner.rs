@@ -392,7 +392,7 @@ pub fn setup_inline(name: &str, inline: &qwert_yml::InlineSetup, source: Option<
 pub fn setup_inline_with_output(name: &str, inline: &qwert_yml::InlineSetup, source: Option<&Path>) -> Outcome {
     match setup_inline(name, inline, source) {
         RunResult::NotSupported => {
-            printer::skipped(name, "setup has no steps for this platform — skipping");
+            printer::skipped(name, "setup has no steps for this platform");
             Outcome::Skipped
         }
         RunResult::AlreadyInstalled { .. } => {
@@ -422,7 +422,7 @@ pub fn setup_with_output(recipe: &Recipe, source: Option<&Path>) -> Outcome {
             let platform = platform::detect();
             let supported = recipe.meta.platforms.as_deref().map(|p| p.join(", ")).unwrap_or_default();
             let reason = if supported.is_empty() {
-                format!("setup has no steps for {} — skipping", platform)
+                format!("setup has no steps for {}", platform)
             } else {
                 format!("not supported on {} (recipe supports: {})", platform, supported)
             };
