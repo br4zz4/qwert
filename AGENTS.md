@@ -151,6 +151,7 @@ description = "Terminal multiplexer"
 # sem `type` → package: yuiop instala no PM da plataforma
 depends = []           # other recipe names to install first
 packages = { brew = "tmux", apt = "tmux", pacman = "tmux" }  # optional per-PM names; default: meta.name
+platforms = ["macos"]  # optional allowlist: macos|debian|arch|linux (linux = debian+arch)
 
 [check]
 command = "tmux"
@@ -160,7 +161,17 @@ version_flag = "-V"
 [install]
 macos = "custom install command"
 debian = ["step one", "step two"]
+linux = "same command for debian and arch"
 ```
+
+**Platform restriction (`platforms`)**: optional allowlist in `[meta]`. When absent, the
+recipe works on every platform. Values: `macos`, `debian`, `arch`, or `linux` (alias for
+debian+arch). When the current platform isn't in the list, `qwert apply` skips the tool
+with a warning (counted as "skipped" in the summary, never a failure).
+
+**`linux` command sections**: `[install.linux]`, `[setup.linux]`, `[upgrade.linux]`,
+`[uninstall.linux]`, `[undo.linux]` run on both debian and arch. A platform-specific
+section (`arch`/`debian`) takes precedence over `linux` when both exist.
 
 ### `setup.toml`
 
@@ -179,9 +190,14 @@ macos = ["defaults delete com.googlecode.iterm2 PrefsCustomFolder"]
 ```
 
 **Setup types and undo behaviour:**
-- `symlink = true` — undo removes the symlink
+- `symlink = true` — undo removes the symlink. If the destination already exists and
+  is not a qwert-managed symlink, qwert backs it up to
+  `~/.local/share/qwert/backups/<name>/` (timestamped) and proceeds.
 - copy (dest exists, no symlink) — undo backs up to `~/.local/share/qwert/backups/<name>/` then removes
 - commands — undo runs `[undo]` section; warns if not defined
+- A setup with no commands for the current platform and no source declared in
+  `profiles.<profile>.configs.<tool>` is **skipped** (not a failure) — `qwert apply`
+  counts it as "skipped" in the summary.
 
 ### Package recipes
 
