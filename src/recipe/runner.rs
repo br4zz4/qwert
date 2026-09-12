@@ -15,12 +15,13 @@ pub enum RunResult {
 
 /// Terminal-level outcome after a `*_with_output` operation — lets callers
 /// distinguish success from "skipped on this platform" from hard failure.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     /// Installed/set up (or already done / nothing to do).
     Ok,
     /// Skipped: platform not supported, or setup has no steps for this platform.
-    Skipped,
+    /// Carries the human-readable reason shown in the apply summary.
+    Skipped(String),
     /// Operation failed.
     Failed,
 }
@@ -237,7 +238,7 @@ pub fn install_with_output(recipe: &Recipe, recipes_dir: &Path) -> Outcome {
                 format!("not supported on {} (recipe supports: {})", platform, supported)
             };
             printer::skipped(name, &reason);
-            Outcome::Skipped
+            Outcome::Skipped(reason)
         }
     }
 }
@@ -394,8 +395,9 @@ pub fn setup_inline(name: &str, inline: &qwert_yml::InlineSetup, source: Option<
 pub fn setup_inline_with_output(name: &str, inline: &qwert_yml::InlineSetup, source: Option<&Path>) -> Outcome {
     match setup_inline(name, inline, source) {
         RunResult::NotSupported => {
-            printer::skipped(name, "setup has no steps for this platform");
-            Outcome::Skipped
+            let reason = format!("setup has no steps for {}", platform::detect());
+            printer::skipped(name, &reason);
+            Outcome::Skipped(reason)
         }
         RunResult::AlreadyInstalled { .. } => {
             printer::ok(name, "setup already done");
@@ -429,7 +431,7 @@ pub fn setup_with_output(recipe: &Recipe, source: Option<&Path>) -> Outcome {
                 format!("not supported on {} (recipe supports: {})", platform, supported)
             };
             printer::skipped(name, &reason);
-            Outcome::Skipped
+            Outcome::Skipped(reason)
         }
         RunResult::AlreadyInstalled { .. } => {
             printer::ok(name, "setup already done");

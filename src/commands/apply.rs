@@ -42,10 +42,10 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
 
     let mut install_done = 0;
     let mut install_failed = 0;
-    let mut install_skipped: Vec<String> = Vec::new();
+    let mut install_skipped: Vec<(String, String)> = Vec::new();
     let mut setup_done = 0;
     let mut setup_failed = 0;
-    let mut setup_skipped: Vec<String> = Vec::new();
+    let mut setup_skipped: Vec<(String, String)> = Vec::new();
     let mut orphan_done = 0;
     let mut orphan_failed = 0;
 
@@ -152,7 +152,7 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
                         install_done += 1;
                     }
                     runner::Outcome::Failed => install_failed += 1,
-                    runner::Outcome::Skipped => install_skipped.push(name.to_string()),
+                    runner::Outcome::Skipped(reason) => install_skipped.push((name.to_string(), reason)),
                 }
             }
             None => {
@@ -210,7 +210,7 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
         match has_setup {
             runner::Outcome::Ok => setup_done += 1,
             runner::Outcome::Failed => setup_failed += 1,
-            runner::Outcome::Skipped => setup_skipped.push(name.to_string()),
+            runner::Outcome::Skipped(reason) => setup_skipped.push((name.to_string(), reason)),
         }
     }
 
@@ -244,16 +244,17 @@ pub fn run(tool: Option<&str>, dry_run: bool) -> Result<()> {
         );
     }
 
-    // Nominal list of skipped tools (unsupported platform / no steps).
-    let mut skipped_all: Vec<String> = install_skipped;
-    skipped_all.extend(setup_skipped);
+    // Nominal list of skipped tools with the real reason (install vs setup).
+    let mut skipped_all: Vec<(String, String)> = Vec::new();
+    skipped_all.extend(install_skipped.iter().map(|(n, r)| (n.clone(), r.clone())));
+    skipped_all.extend(setup_skipped.iter().map(|(n, r)| (n.clone(), r.clone())));
     skipped_all.sort();
     skipped_all.dedup();
     if !skipped_all.is_empty() {
         printer::blank();
         printer::h2("Skipped");
-        for name in &skipped_all {
-            printer::bullet(&format!("{} — not supported on this platform", name));
+        for (name, reason) in &skipped_all {
+            printer::bullet(&format!("{} — {}", name, reason));
         }
     }
 
