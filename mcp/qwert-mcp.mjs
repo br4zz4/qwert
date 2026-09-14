@@ -6,11 +6,29 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const HOME = process.env.HOME || homedir();
 const QWERT_DIR = process.env.QWERT_DIR || join(HOME, ".qwert");
 const DATA_DIR = join(HOME, ".local/share/qwert");
 const SKILL_PATH = join(QWERT_DIR, "config/agents/skills/qwert-ops/SKILL.md");
+
+// read-only: always allowed; mutating: needs { confirm: true }; forbidden: never.
+const CLI_READ = ["doctor", "list", "info", "search", "show", "status", "version", "profile", "platform", "hook", "recipes", "completions", "help", "--help", "--version"];
+const CLI_MUTATING = ["apply", "setup", "install", "use", "upgrade", "reinstall", "config", "edit"];
+const CLI_FORBIDDEN = ["uninstall", "drop", "self"];
+
+function runQwert(argv) {
+  const bin = existsSync("/usr/local/bin/qwert") ? "/usr/local/bin/qwert" : "qwert";
+  const r = spawnSync(bin, argv, {
+    encoding: "utf8",
+    env: { ...process.env, HOME, QWERT_DIR },
+    timeout: 300000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  const out = ((r.stdout || "") + (r.stderr ? "\nstderr:\n" + r.stderr : "")).trim();
+  return { exit_code: r.status, output: out || "(no output)" };
+}
 
 function readFile(p) {
   try {
@@ -224,6 +242,43 @@ ${
     }
     return { content: md };
   },
+
+  qwert_doctor() {
+    return runQwert(["doctor"]);
+  },
+
+  qwert_info(args) {
+    if (!args?.tool) return { error: "{tool} required" };
+    return runQwert(["info", args.tool]);
+  },
+
+  qwert_state() {
+    return {
+      profile: machineProfile(),
+      declared: runQwert(["list"]),
+      doctor: runQwert(["doctor"]),
+      profiles: profilesOfConfig(),
+    };
+  },
+
+  qwert_cli(args) {
+    const argv = [...(args?.args || [])].map(String);
+    if (!argv.length) return { error: "{args: [...]} required, e.g. {args:['doctor']} or {args:['apply'], confirm:true}" };
+    const head = argv.filter((a) => !a.startsWith("-"))[0] || "";
+    const head2 = argv.slice(0, 2).join(" ");
+    if (CLI_FORBIDDEN.includes(head)) {
+      return { error: `'${head}' is never allowed over MCP: full teardown destroys shared system packages. Run it manually in a terminal after human confirmation.` };
+    }
+    if (CLI_MUTATING.includes(head) || CLI_MUTATING.includes(head2)) {
+      if (!args?.confirm) {
+        return { error: `'${head}' mutates the machine. Call again with confirm:true only after the human approved. Remember: apply uninstalls 'orphan' tools declared in other profiles (system packages shared across users).` };
+      }
+    }
+    if (!CLI_READ.includes(head) && !CLI_MUTATING.includes(head) && !argv.includes("--help") && !argv.includes("--version")) {
+      return { error: `unknown subcommand '${head}' — see qwert_help for the command list` };
+    }
+    return runQwert(argv);
+  },
 };
 
 const result = (id, r) => console.log(JSON.stringify({ jsonrpc: "2.0", id, result: r }));
@@ -257,7 +312,7 @@ function handle(msg) {
       result(msg.id, {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "qwert", version: "1.0.0" },
+        serverInfo: { name: "qwert", version: "1.1.0" },
         instructions:
           "Use these tools to learn how qwert works before touching a qwert machine: read qwert_skill/qwert_ops first, then qwert_machine for live state. NEVER run uninstall/drop/apply without confirming which packages disappear (system packages are shared across users).",
       });
@@ -299,6 +354,33 @@ function handle(msg) {
             name: "qwert_recipe_documentation",
             description: "Full install.toml + setup.toml of a recipe (read before installing any tool)",
             inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+          },
+          {
+            name: "qwert_state",
+            description: "Snapshot of live machine state: profile + declared profiles, `qwert list`, `qwert doctor`",
+            inputSchema: { type: "object", properties: {} },
+          },
+          {
+            name: "qwert_doctor",
+            description: "Live output of `qwert doctor` (read-only)",
+            inputSchema: { type: "object", properties: {} },
+          },
+          {
+            name: "qwert_info",
+            description: "Live output of `qwert info <tool>` (read-only)",
+            inputSchema: { type: "object", properties: { tool: { type: "string" } }, required: ["tool"] },
+          },
+          {
+            name: "qwert_cli",
+            description: "Run a safe qwert subcommand on this machine. Read-only commands (doctor/list/info/search/profile...) run directly. Mutating ones (apply/setup/install/use/upgrade) need {confirm:true} after human approval. uninstall/drop/self are NEVER allowed here.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                args: { type: "array", items: { type: "string" }, description: "argv after `qwert`, e.g. ['doctor']" },
+                confirm: { type: "boolean", description: "must be true for mutating commands" },
+              },
+              required: ["args"],
+            },
           },
         ],
       });

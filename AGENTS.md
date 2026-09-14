@@ -273,3 +273,13 @@ Dependencies: `clap 4`, `serde + serde_yml`, `toml`, `anyhow`, `dirs`
 ## v1 (shell scripts)
 
 The original shell implementation is in `v1/`. Root-level `bin/qwert` and `run` are shims that delegate to `v1/`. This keeps existing `~/.qwert` installations working while v2 is developed.
+
+## MCP server (mcp/qwert-mcp.mjs)
+
+A dependency-free stdio MCP server (~11 KB Node, no npm deps) exposes qwert to AI agents
+(read the README "MCP server" section for the tool list). Spec:
+
+- Flat newline-delimited JSON-RPC 2.0; implements `initialize`, `ping`, `tools/list`, `tools/call`.
+- State model: `~/.qwert` (config.yml, recipes, skills), `~/.local/share/qwert` (machine.yml = profile at runtime). Env: `HOME`, `QWERT_DIR`.
+- Tool safety: read-only commands direct; mutating (`apply/setup/install/use/upgrade`) gate on `confirm: true`; `uninstall/drop/self` refused — shared system packages make full teardown destructive.
+- Keep dotfiles copy (`~/.qwert/mcp/qwert-mcp.mjs`) in sync with this one: the dotfiles repo copies this file at bootstrap (that copy is the one MCP clients actually run).

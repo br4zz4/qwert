@@ -69,3 +69,19 @@ steps, setup (symlinks, copies, commands), and undo behaviour.
 Package installation delegates to [yuiop](https://github.com/br4zz4/yuiop), the universal
 wrapper over `brew`/`apt`/`pacman`. qwert passes a tool's canonical name and yuiop resolves the
 platform's package manager — qwert never maps a platform to a PM itself.
+
+## MCP server (for AI agents)
+
+`mcp/qwert-mcp.mjs` is a dependency-free stdio MCP server (~11 KB, no npm deps) that teaches
+agents how to operate qwert safely. Register it in any MCP client (Claude Code, OpenCode, etc.):
+
+```json
+{ "qwert": { "type": "local", "command": ["node", "~/.qwert/mcp/qwert-mcp.mjs"], "enabled": true } }
+```
+
+Tools (prefix `qwert_`):
+
+- **Read state & docs**: `qwert_state` (profile + list + doctor), `qwert_machine` (config.yml/machine.yml), `qwert_doctor`, `qwert_info {tool}`, `qwert_recipes`, `qwert_recipe_documentation {name}`, `qwert_skill`/`qwert_ops {intent}` (qwert-ops skill), `qwert_help`.
+- **Gated execution**: `qwert_cli {args, confirm?}` — read-only subcommands run directly; mutating ones (`apply/setup/install/use/upgrade`) require `confirm: true` after human approval; `uninstall/drop/self` are never allowed (system packages are shared across users).
+
+The server reads the machine state from `~/.qwert` and `~/.local/share/qwert` (override with `HOME`/`QWERT_DIR` env).
