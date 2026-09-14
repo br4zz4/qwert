@@ -57,7 +57,16 @@ pub fn backup_and_remove(path: &Path, backup_dir: &Path) -> Result<std::path::Pa
         .unwrap_or_else(|| "item".to_string());
     let backup_path = backup_dir.join(format!("{}.{}", name, stamp));
 
-    std::fs::rename(path, &backup_path)?;
+    std::fs::rename(path, &backup_path).or_else(|_| {
+        // rename fails across filesystems (EXDEV) — fall back to copy + remove
+        std::fs::copy(path, &backup_path)?;
+        if path.is_dir() {
+            std::fs::remove_dir_all(path)?;
+        } else {
+            std::fs::remove_file(path)?;
+        }
+        Ok::<(), std::io::Error>(())
+    })?;
     Ok(backup_path)
 }
 
