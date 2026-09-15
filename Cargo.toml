@@ -1,6 +1,6 @@
 [package]
 name = "qwert"
-version = "0.3.0"
+version = "0.10.0"
 edition = "2021"
 description = "Dev environment manager for macOS and Linux"
 

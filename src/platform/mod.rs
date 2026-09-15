@@ -12,6 +12,71 @@ pub fn data_dir() -> PathBuf {
         .join(".local/share/qwert")
 }
 
+/// True when running with an effective uid of root.
+fn is_root() -> bool {
+    #[cfg(unix)]
+    {
+        std::fs::metadata("/proc/self")
+            .as_ref()
+            .map(|m| std::os::unix::fs::MetadataExt::uid(m) == 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+/// Privilege preflight for setup commands. Commands starting with `sudo `
+/// need elevated credentials: prime the sudo timestamp cache once so a whole
+/// recipe setup only prompts a single time.
+///
+/// - already root            → proceed
+/// - cached sudo (sudo -n ok)→ proceed
+/// - interactive TTY         → run `sudo -v` once so the user types the
+///                             password before any step is touched
+/// - no TTY                  → return a clear guidance error instead of a
+///                             confusing `sudo: a terminal is required`
+fn ensure_sudo_preflight(cmd: &str) -> Result<()> {
+    if !cmd.trim_start().starts_with("sudo ") {
+        return Ok(());
+    }
+    if is_root() {
+        return Ok(());
+    }
+    use std::io::IsTerminal;
+    let probe = std::process::Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let cached = matches!(probe, Ok(s) if s.success());
+    if cached {
+        return Ok(());
+    }
+    if std::io::stdin().is_terminal() {
+        crate::ui::printer::info(
+            "elevated privileges needed — sudo will ask for the password once (sudo -v)",
+        );
+        let ok = std::process::Command::new("sudo")
+            .arg("-v")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        return if ok {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "sudo password required but not provided — aborted before any change"
+            ))
+        };
+    }
+    Err(anyhow::anyhow!(
+        "command needs elevated privileges and there is no TTY for the sudo prompt — \
+         run `sudo -v` in a terminal (then retry), or run qwert inside your shell"
+    ))
+}
+
 /// Platform-specific installation conventions (paths, completions, shell config).
 pub trait InstallerOps {
     /// /opt/qwert/bin/qwert
@@ -106,6 +171,7 @@ pub fn detect() -> Platform {
 
 /// Execute a shell command, streaming stdout/stderr to terminal
 pub fn run_cmd(cmd: &str) -> Result<()> {
+    ensure_sudo_preflight(cmd)?;
     let status = std::process::Command::new("bash")
         .arg("-c")
         .arg(cmd)
